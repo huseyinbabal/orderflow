@@ -1,0 +1,16 @@
+services:
+  rabbitmq:
+    image: rabbitmq:4-management
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # management UI (guest/guest)
+
+  kafka:
+    image: apache/kafka:4.0.0   # KRaft — no ZooKeeper
+    ports:
+      - "9092:9092"
+
+  redis:
+    image: redis:8
+    ports:
+      - "6379:6379"
