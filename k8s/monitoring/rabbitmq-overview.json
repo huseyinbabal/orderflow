@@ -8343,7 +8343,10 @@
    {
     "allValue": ".*",
     "allowCustomValue": false,
-    "current": {},
+    "current": {
+     "text": "per-object",
+     "value": "per-object"
+    },
     "datasource": {
      "type": "prometheus",
      "uid": "Prometheus"
@@ -8369,7 +8372,10 @@
     "name": "queue",
     "label": "Queue",
     "type": "query",
-    "datasource": "Prometheus",
+    "datasource": {
+     "type": "prometheus",
+     "uid": "prometheus"
+    },
     "query": {
      "query": "label_values(rabbitmq_queue_messages_ready, queue)",
      "refId": "qv"
@@ -8383,7 +8389,8 @@
      "value": [
       "$__all"
      ]
-    }
+    },
+    "allValue": ".*"
    }
   ]
  },
