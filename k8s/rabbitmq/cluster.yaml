@@ -6,7 +6,8 @@ metadata:
   name: rabbitmq
   namespace: default
 spec:
-  replicas: 1            # bump to 3 for the HA demo (needs a beefier machine)
+  replicas: 3            # quorum majority — also what the HA demo needs
+                         # (operator refuses scale-DOWN: don't lower this once applied)
   resources:
     requests:
       cpu: 250m
