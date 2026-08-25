@@ -91,8 +91,14 @@ grafana: ## Port-forward Grafana → localhost:13000 (prints admin password)
 prometheus: ## Port-forward Prometheus → localhost:19090
 	kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 19090:9090
 
-k8s-burst: ## Burst N msgs (default 5000) into RabbitMQ via the in-cluster app (needs app-forward)
-	curl -s -X POST 'localhost:18080/orders/burst/$(or $(N),5000)?broker=rabbit'
+k8s-burst: ## Burst N msgs (default 5000) via the in-cluster app; BROKER=rabbit|kafka|notify (needs app-forward)
+	curl -s -X POST 'localhost:18080/orders/burst/$(or $(N),5000)?broker=$(or $(BROKER),rabbit)'
+
+workers-pause: ## Stop ALL rabbit listeners (intake keeps running — queues absorb the load)
+	curl -s -X POST localhost:18080/admin/workers/pause
+
+workers-resume: ## Restart the rabbit listeners (drain begins)
+	curl -s -X POST localhost:18080/admin/workers/resume
 
 ## --- Load testing (k6-operator) ---
 

@@ -37,7 +37,9 @@ class OrderController {
             switch (broker) {
                 case "rabbit" -> rabbit.convertAndSend("orders", event);
                 case "kafka" -> kafka.send("orders", event.orderId(), event);
-                default -> throw new IllegalArgumentException("broker must be rabbit or kafka");
+                // Black Friday: one publish → email+sms+push queues via notify.* bindings
+                case "notify" -> rabbit.convertAndSend("notify.topic", "notify.all", event);
+                default -> throw new IllegalArgumentException("broker must be rabbit, kafka or notify");
             }
         });
     }
