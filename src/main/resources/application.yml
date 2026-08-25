@@ -1,4 +1,15 @@
 spring:
+  rabbitmq:
+    listener:
+      simple:
+        prefetch: 10                 # slow external providers → keep it low
+        retry:
+          enabled: true              # in-process retry with backoff (no requeue storm)
+          max-attempts: 3
+          initial-interval: 500ms
+          multiplier: 2
+    publisher-confirm-type: correlated   # never publish blind
+    publisher-returns: true              # catch unroutable messages
   kafka:
     bootstrap-servers: localhost:9092
     producer:

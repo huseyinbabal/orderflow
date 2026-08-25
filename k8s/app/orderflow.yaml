@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orderflow
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: orderflow }
+  template:
+    metadata:
+      labels: { app: orderflow }
+    spec:
+      containers:
+        - name: orderflow
+          image: orderflow:latest
+          imagePullPolicy: Never        # image is side-loaded via `kind load`
+          ports:
+            - containerPort: 8080
+          env:
+            - { name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
+            - { name: SPRING_RABBITMQ_HOST, value: "rabbitmq" }
+            - name: SPRING_RABBITMQ_USERNAME
+              valueFrom:
+                secretKeyRef: { name: rabbitmq-default-user, key: username }
+            - name: SPRING_RABBITMQ_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: rabbitmq-default-user, key: password }
+          resources:
+            requests: { cpu: 250m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orderflow
+  namespace: default
+spec:
+  selector: { app: orderflow }
+  ports:
+    - port: 8080
+      targetPort: 8080

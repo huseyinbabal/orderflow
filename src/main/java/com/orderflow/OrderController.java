@@ -26,6 +26,8 @@ class OrderController {
         var event = OrderEvent.of(req);
         rabbit.convertAndSend("orders", event);        // default exchange → queue "orders"
         kafka.send("orders", event.orderId(), event);  // key → same order, same partition
+        // one publish → the broker copies it into every queue bound with "notify.*"
+        rabbit.convertAndSend("notify.topic", "notify.all", event);
     }
 
     @PostMapping("/orders/burst/{count}")
