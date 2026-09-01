@@ -1,0 +1,41 @@
+# Requires the RabbitMQ Cluster Operator:
+#   kubectl apply -f https://github.com/rabbitmq/cluster-operator/releases/latest/download/cluster-operator.yml
+apiVersion: rabbitmq.com/v1beta1
+kind: RabbitmqCluster
+metadata:
+  name: rabbitmq
+  namespace: default
+spec:
+  replicas: 3            # quorum majority — also what the HA demo needs
+                         # (operator refuses scale-DOWN: don't lower this once applied)
+  resources:
+    requests:
+      cpu: 250m
+      memory: 512Mi
+    limits:
+      cpu: "1"
+      memory: 1Gi
+  rabbitmq:
+    additionalPlugins:
+      - rabbitmq_prometheus   # built-in exporter → :15692/metrics
+      - rabbitmq_management
+    additionalConfig: |
+      # per-queue series in Grafana (notify.email vs sms vs push side by side);
+      # fine for a class cluster, mind the cardinality on a real one
+      prometheus.return_per_object_metrics = true
+---
+# Lets kube-prometheus-stack scrape every RabbitMQ pod's built-in exporter
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: rabbitmq
+  namespace: default
+spec:
+  podMetricsEndpoints:
+    - port: prometheus       # 15692, exposed by the operator on every pod
+      interval: 15s
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: rabbitmq
+  namespaceSelector:
+    matchNames: [default]

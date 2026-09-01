@@ -1,0 +1,25 @@
+# Requires the k6-operator:
+#   helm install k6-operator grafana/k6-operator -n k6-operator --create-namespace
+# and the script ConfigMap:
+#   kubectl create configmap k6-order-load --from-file=k6/load-test.js
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata:
+  name: order-load
+  namespace: default
+spec:
+  parallelism: 4                    # 4 runner pods spread across the workers
+  arguments: -o experimental-prometheus-rw --tag testid=order-load
+  script:
+    configMap:
+      name: k6-order-load
+      file: load-test.js
+  runner:
+    env:
+      - name: K6_PROMETHEUS_RW_SERVER_URL
+        value: http://kps-kube-prometheus-stack-prometheus.monitoring:9090/api/v1/write
+      - name: K6_PROMETHEUS_RW_TREND_STATS
+        value: p(95),p(99),avg,min,max
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 256Mi }

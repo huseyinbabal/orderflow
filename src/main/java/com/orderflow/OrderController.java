@@ -26,6 +26,8 @@ class OrderController {
         var event = OrderEvent.of(req);
         rabbit.convertAndSend("orders", event);        // default exchange → queue "orders"
         kafka.send("orders", event.orderId(), event);  // key → same order, same partition
+        // one publish → the broker copies it into every queue bound with "notify.*"
+        rabbit.convertAndSend("notify.topic", "notify.all", event);
     }
 
     @PostMapping("/orders/burst/{count}")
@@ -35,7 +37,9 @@ class OrderController {
             switch (broker) {
                 case "rabbit" -> rabbit.convertAndSend("orders", event);
                 case "kafka" -> kafka.send("orders", event.orderId(), event);
-                default -> throw new IllegalArgumentException("broker must be rabbit or kafka");
+                // Black Friday: one publish → email+sms+push queues via notify.* bindings
+                case "notify" -> rabbit.convertAndSend("notify.topic", "notify.all", event);
+                default -> throw new IllegalArgumentException("broker must be rabbit, kafka or notify");
             }
         });
     }
