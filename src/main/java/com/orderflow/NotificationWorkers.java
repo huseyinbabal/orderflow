@@ -10,13 +10,15 @@ class NotificationWorkers {
 
     private static final Logger log = LoggerFactory.getLogger(NotificationWorkers.class);
 
-    @RabbitListener(queues = "notify.email", concurrency = "2-8")
+    @RabbitListener(queues = "notify.email", concurrency = "2-8",
+            autoStartup = "${orderflow.listeners.rabbit:true}")
     public void email(OrderEvent e) throws InterruptedException {
         Thread.sleep(200);                              // email provider: slow
         log.info("EMAIL sent for {}", e.orderId());
     }
 
-    @RabbitListener(queues = "notify.sms", concurrency = "2-4")
+    @RabbitListener(queues = "notify.sms", concurrency = "2-4",
+            autoStartup = "${orderflow.listeners.rabbit:true}")
     public void sms(OrderEvent e) throws InterruptedException {
         Thread.sleep(100);
         // ~10% of orders hit a "broken" provider — deterministic by orderId, so the
@@ -26,7 +28,8 @@ class NotificationWorkers {
         log.info("SMS sent for {}", e.orderId());
     }
 
-    @RabbitListener(queues = "notify.push", concurrency = "4-16")
+    @RabbitListener(queues = "notify.push", concurrency = "4-16",
+            autoStartup = "${orderflow.listeners.rabbit:true}")
     public void push(OrderEvent e) {
         log.info("PUSH sent for {}", e.orderId());
     }

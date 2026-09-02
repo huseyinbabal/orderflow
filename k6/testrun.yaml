@@ -16,6 +16,9 @@ spec:
       file: load-test.js
   runner:
     env:
+      # BROKER_PLACEHOLDER is substituted by `make k6-run BROKER=kafka` (default: all)
+      - name: BROKER
+        value: "BROKER_PLACEHOLDER"
       - name: K6_PROMETHEUS_RW_SERVER_URL
         value: http://kps-kube-prometheus-stack-prometheus.monitoring:9090/api/v1/write
       - name: K6_PROMETHEUS_RW_TREND_STATS

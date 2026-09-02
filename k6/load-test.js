@@ -26,7 +26,10 @@ export const options = {
   },
 };
 
-const URL = 'http://orderflow.default.svc.cluster.local:8080/orders';
+// BROKER=all|rabbit|kafka — Session 3 runs the Kafka-only rematch (BROKER=kafka)
+// so RabbitMQ traffic doesn't muddy the consumer-lag graphs.
+const BROKER = __ENV.BROKER || 'all';
+const URL = `http://orderflow.default.svc.cluster.local:8080/orders?broker=${BROKER}`;
 
 export default function () {
   const payload = JSON.stringify({

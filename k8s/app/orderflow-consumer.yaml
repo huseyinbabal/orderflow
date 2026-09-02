@@ -1,28 +1,29 @@
-# The API / intake deployment: HTTP + RabbitMQ workers. Kafka listeners are OFF here —
-# they live in their own deployment (orderflow-consumer.yaml) so they scale independently.
+# The Kafka consumer deployment — SAME image as the API, different role.
+# Rabbit listeners are off; only the Kafka consumer groups (fulfillment, analytics) run.
+# Scale it up and down live during the k6 demo:
+#   kubectl scale deploy/orderflow-consumer --replicas=3
+# Parallelism still caps at min(partitions, pods) — the Session 1 wall, now visible in Grafana.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: orderflow
+  name: orderflow-consumer
   namespace: default
 spec:
   replicas: 1
   selector:
-    matchLabels: { app: orderflow }
+    matchLabels: { app: orderflow-consumer }
   template:
     metadata:
-      labels: { app: orderflow }
+      labels: { app: orderflow-consumer }
     spec:
       containers:
-        - name: orderflow
+        - name: orderflow-consumer
           image: orderflow:latest
           imagePullPolicy: Never        # image is side-loaded via `kind load`
-          ports:
-            - containerPort: 8080
           env:
             - { name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
             - { name: SCHEMA_REGISTRY_URL, value: "http://cp-schema-registry:8081" }
-            - { name: ORDERFLOW_LISTENERS_KAFKA, value: "false" }
+            - { name: ORDERFLOW_LISTENERS_RABBIT, value: "false" }
             - { name: SPRING_RABBITMQ_HOST, value: "rabbitmq" }
             - name: SPRING_RABBITMQ_USERNAME
               valueFrom:
@@ -33,14 +34,3 @@ spec:
           resources:
             requests: { cpu: 250m, memory: 512Mi }
             limits: { cpu: "1", memory: 1Gi }
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: orderflow
-  namespace: default
-spec:
-  selector: { app: orderflow }
-  ports:
-    - port: 8080
-      targetPort: 8080

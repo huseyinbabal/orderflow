@@ -1,3 +1,11 @@
+# Which listener sets run in THIS process. Locally both are on (one JVM does it all);
+# in Kubernetes the API deployment turns Kafka off and the consumer deployment turns
+# Rabbit off — that's what lets consumers scale as their own pods.
+orderflow:
+  listeners:
+    rabbit: true
+    kafka: true
+
 spring:
   rabbitmq:
     listener:
@@ -14,10 +22,13 @@ spring:
     bootstrap-servers: localhost:9092
     producer:
       key-serializer: org.apache.kafka.common.serialization.StringSerializer
-      value-serializer: org.springframework.kafka.support.serializer.JacksonJsonSerializer
+      value-serializer: io.confluent.kafka.serializers.KafkaAvroSerializer
     consumer:
       key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
-      value-deserializer: org.springframework.kafka.support.serializer.JacksonJsonDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.ErrorHandlingDeserializer
       auto-offset-reset: earliest
       properties:
-        spring.json.trusted.packages: com.orderflow
+        spring.deserializer.value.delegate.class: io.confluent.kafka.serializers.KafkaAvroDeserializer
+        specific.avro.reader: true       # typed OrderEvent, not GenericRecord
+    properties:
+      schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}

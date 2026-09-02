@@ -1,0 +1,14 @@
+{
+  "type": "record",
+  "name": "OrderEvent",
+  "namespace": "com.orderflow.avro",
+  "doc": "The order backbone contract. A topic is a public API — this file is it.",
+  "fields": [
+    { "name": "eventId",    "type": "string" },
+    { "name": "orderId",    "type": "string" },
+    { "name": "customerId", "type": "string" },
+    { "name": "amount",     "type": { "type": "bytes", "logicalType": "decimal",
+                                      "precision": 10, "scale": 2 } },
+    { "name": "at",         "type": { "type": "long", "logicalType": "timestamp-millis" } }
+  ]
+}

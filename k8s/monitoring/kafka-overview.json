@@ -1,0 +1,162 @@
+{
+  "uid": "kafka-orderflow",
+  "title": "Kafka / OrderFlow Overview",
+  "tags": ["kafka", "orderflow"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total lag — fulfillment",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 10000 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(kafka_consumergroup_lag{consumergroup=\"fulfillment\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Total lag — analytics",
+      "gridPos": { "h": 5, "w": 4, "x": 4, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "color": { "mode": "thresholds" },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              { "color": "green", "value": null },
+              { "color": "yellow", "value": 1000 },
+              { "color": "red", "value": 10000 }
+            ]
+          },
+          "unit": "short"
+        }
+      },
+      "targets": [
+        {
+          "expr": "sum(kafka_consumergroup_lag{consumergroup=\"analytics\"})",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Consumer group members",
+      "gridPos": { "h": 5, "w": 4, "x": 8, "y": 0 },
+      "fieldConfig": { "defaults": { "color": { "mode": "palette-classic" }, "unit": "short" } },
+      "targets": [
+        {
+          "expr": "kafka_consumergroup_members",
+          "legendFormat": "{{consumergroup}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Consumer group lag (the metric that pages you)",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 0 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 12, "lineWidth": 2, "showPoints": "never" },
+          "unit": "short"
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "sum by (consumergroup) (kafka_consumergroup_lag)",
+          "legendFormat": "{{consumergroup}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Lag derivative (growing = outage brewing)",
+      "gridPos": { "h": 5, "w": 12, "x": 0, "y": 5 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 12, "lineWidth": 2, "showPoints": "never" },
+          "unit": "short"
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "sum by (consumergroup) (deriv(kafka_consumergroup_lag[2m]))",
+          "legendFormat": "{{consumergroup}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Lag by partition — orders / fulfillment (hot-partition view)",
+      "gridPos": { "h": 10, "w": 12, "x": 0, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 12, "lineWidth": 2, "showPoints": "never" },
+          "unit": "short"
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "kafka_consumergroup_lag{topic=\"orders\", consumergroup=\"fulfillment\"}",
+          "legendFormat": "partition {{partition}}",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Produce vs consume rate — orders (msgs/s)",
+      "gridPos": { "h": 10, "w": 12, "x": 12, "y": 10 },
+      "fieldConfig": {
+        "defaults": {
+          "custom": { "fillOpacity": 12, "lineWidth": 2, "showPoints": "never" },
+          "unit": "mps"
+        }
+      },
+      "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
+      "targets": [
+        {
+          "expr": "sum(rate(kafka_topic_partition_current_offset{topic=\"orders\"}[1m]))",
+          "legendFormat": "produced",
+          "refId": "A"
+        },
+        {
+          "expr": "sum by (consumergroup) (rate(kafka_consumergroup_current_offset{topic=\"orders\"}[1m]))",
+          "legendFormat": "consumed — {{consumergroup}}",
+          "refId": "B"
+        }
+      ]
+    }
+  ]
+}

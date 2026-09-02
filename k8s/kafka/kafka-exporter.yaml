@@ -1,0 +1,52 @@
+# kafka-exporter — turns broker state into Prometheus metrics.
+# The star of Session 3: kafka_consumergroup_lag{consumergroup,topic,partition}.
+# Scraped by kube-prometheus-stack via the ServiceMonitor below.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-exporter
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kafka-exporter }
+  template:
+    metadata:
+      labels: { app: kafka-exporter }
+    spec:
+      containers:
+        - name: kafka-exporter
+          image: danielqsj/kafka-exporter:v1.9.0
+          args:
+            - --kafka.server=kafka:9092
+          ports:
+            - name: metrics
+              containerPort: 9308
+          resources:
+            requests: { cpu: 50m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-exporter
+  namespace: default
+  labels: { app: kafka-exporter }
+spec:
+  selector: { app: kafka-exporter }
+  ports:
+    - name: metrics
+      port: 9308
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: kafka-exporter
+  namespace: default
+spec:
+  selector:
+    matchLabels: { app: kafka-exporter }
+  endpoints:
+    - port: metrics
+      interval: 15s

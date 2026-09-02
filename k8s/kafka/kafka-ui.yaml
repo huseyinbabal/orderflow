@@ -1,0 +1,39 @@
+# UI for Kafka (provectuslabs/kafka-ui) — wired to the broker AND the schema
+# registry, so Avro messages on `orders` render decoded (the UI fetches the
+# schema by id instead of showing raw bytes).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-ui
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kafka-ui }
+  template:
+    metadata:
+      labels: { app: kafka-ui }
+    spec:
+      containers:
+        - name: kafka-ui
+          image: provectuslabs/kafka-ui:v0.7.2
+          ports:
+            - containerPort: 8080
+          env:
+            - { name: KAFKA_CLUSTERS_0_NAME, value: "orderflow" }
+            - { name: KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS, value: "kafka:9092" }
+            - { name: KAFKA_CLUSTERS_0_SCHEMAREGISTRY, value: "http://cp-schema-registry:8081" }
+          resources:
+            requests: { cpu: 100m, memory: 384Mi }
+            limits: { cpu: 500m, memory: 768Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-ui
+  namespace: default
+spec:
+  selector: { app: kafka-ui }
+  ports:
+    - port: 8080
+      targetPort: 8080
