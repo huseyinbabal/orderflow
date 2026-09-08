@@ -1,0 +1,62 @@
+# Session 4: Redis + redis_exporter on the kind cluster.
+# Single node, no persistence tuning — the feed is ephemeral by design (that IS
+# the durability slide). redis_exporter is told to watch the "feed" stream so
+# Prometheus gets XLEN / group / PEL metrics for the Grafana dashboard.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: redis }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:8
+          args: ["--appendonly", "yes", "--appendfsync", "everysec"]  # AOF everysec — the documented ~1s risk window
+          ports:
+            - { containerPort: 6379, name: redis }
+          resources:
+            requests: { cpu: 100m, memory: 128Mi }
+            limits: { cpu: 500m, memory: 512Mi }
+        - name: exporter
+          image: oliver006/redis_exporter:v1.62.0
+          env:
+            - { name: REDIS_ADDR, value: "redis://localhost:6379" }
+            # per-stream metrics: redis_stream_length, redis_stream_group_*,
+            # redis_stream_group_pending (the PEL gauge the dashboard alerts on)
+            - { name: REDIS_EXPORTER_CHECK_SINGLE_STREAMS, value: "feed" }
+          ports:
+            - { containerPort: 9121, name: metrics }
+          resources:
+            requests: { cpu: 25m, memory: 32Mi }
+            limits: { cpu: 100m, memory: 64Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: default
+  labels: { app: redis }
+spec:
+  selector: { app: redis }
+  ports:
+    - { name: redis, port: 6379, targetPort: redis }
+    - { name: metrics, port: 9121, targetPort: metrics }
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis
+  namespace: default
+spec:
+  selector:
+    matchLabels: { app: redis }
+  endpoints:
+    - port: metrics
+      interval: 15s

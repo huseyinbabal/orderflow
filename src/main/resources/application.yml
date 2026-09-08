@@ -5,8 +5,18 @@ orderflow:
   listeners:
     rabbit: true
     kafka: true
+    redis: true                   # feed consumer group + PEL sweeper (API pods set this false)
+  feed:
+    maxlen: 100000                # approximate MAXLEN on the "feed" stream — memory cap
+    sweeper:
+      interval-ms: 15000          # how often a pod tries to sweep the PEL
+      idle-ms: 60000              # an entry idle this long is considered abandoned → claim it
 
 spring:
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: 6379
   rabbitmq:
     listener:
       simple:

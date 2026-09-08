@@ -1,8 +1,10 @@
-# The Kafka consumer deployment — SAME image as the API, different role.
-# Rabbit listeners are off; only the Kafka consumer groups (fulfillment, analytics) run.
-# Scale it up and down live during the k6 demo:
+# The consumer deployment — SAME image as the API, different role.
+# Rabbit listeners are off. What runs here: the Kafka groups (fulfillment, analytics)
+# AND the Session 4 feed consumer group + PEL sweeper (ORDERFLOW_LISTENERS_REDIS=true).
+# Scale it up and down live during the demos:
 #   kubectl scale deploy/orderflow-consumer --replicas=3
-# Parallelism still caps at min(partitions, pods) — the Session 1 wall, now visible in Grafana.
+# Kafka parallelism caps at min(partitions, pods); the feed group splits the same way,
+# and the sweeper's distributed lock means only ONE of those pods sweeps per tick.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -24,6 +26,8 @@ spec:
             - { name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
             - { name: SCHEMA_REGISTRY_URL, value: "http://cp-schema-registry:8081" }
             - { name: ORDERFLOW_LISTENERS_RABBIT, value: "false" }
+            - { name: ORDERFLOW_LISTENERS_REDIS, value: "true" }    # feed consumer group + sweeper
+            - { name: SPRING_DATA_REDIS_HOST, value: "redis" }
             - { name: SPRING_RABBITMQ_HOST, value: "rabbitmq" }
             - name: SPRING_RABBITMQ_USERNAME
               valueFrom:

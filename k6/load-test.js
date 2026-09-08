@@ -26,8 +26,9 @@ export const options = {
   },
 };
 
-// BROKER=all|rabbit|kafka — Session 3 runs the Kafka-only rematch (BROKER=kafka)
-// so RabbitMQ traffic doesn't muddy the consumer-lag graphs.
+// BROKER=all|rabbit|kafka|redis — Session 3 runs the Kafka-only rematch (BROKER=kafka);
+// Session 4 runs all three back to back (rabbit, kafka, redis) and compares the SHAPES,
+// so each run isolates one broker and its graphs.
 const BROKER = __ENV.BROKER || 'all';
 const URL = `http://orderflow.default.svc.cluster.local:8080/orders?broker=${BROKER}`;
 

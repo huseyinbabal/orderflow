@@ -1,5 +1,7 @@
 # The API / intake deployment: HTTP + RabbitMQ workers. Kafka listeners are OFF here —
 # they live in their own deployment (orderflow-consumer.yaml) so they scale independently.
+# The feed CONSUMER + sweeper are off here too (ORDERFLOW_LISTENERS_REDIS=false): the API
+# only does XADD (publish) and serves GET /feed/live.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -23,6 +25,8 @@ spec:
             - { name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
             - { name: SCHEMA_REGISTRY_URL, value: "http://cp-schema-registry:8081" }
             - { name: ORDERFLOW_LISTENERS_KAFKA, value: "false" }
+            - { name: ORDERFLOW_LISTENERS_REDIS, value: "false" }   # publish + /feed/live only
+            - { name: SPRING_DATA_REDIS_HOST, value: "redis" }
             - { name: SPRING_RABBITMQ_HOST, value: "rabbitmq" }
             - name: SPRING_RABBITMQ_USERNAME
               valueFrom:

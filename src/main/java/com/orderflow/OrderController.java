@@ -15,10 +15,13 @@ class OrderController {
 
     private final RabbitTemplate rabbit;
     private final KafkaTemplate<String, com.orderflow.avro.OrderEvent> kafka;
+    private final FeedPublisher feed;
 
-    OrderController(RabbitTemplate rabbit, KafkaTemplate<String, com.orderflow.avro.OrderEvent> kafka) {
+    OrderController(RabbitTemplate rabbit, KafkaTemplate<String, com.orderflow.avro.OrderEvent> kafka,
+                    FeedPublisher feed) {
         this.rabbit = rabbit;
         this.kafka = kafka;
+        this.feed = feed;
     }
 
     // ?broker=kafka lets the k6 test load ONE broker without the others muddying the graphs
@@ -34,6 +37,11 @@ class OrderController {
             var avro = AvroEvents.of(req);                 // the GENERATED class — typed contract
             kafka.send("orders", avro.getOrderId(), avro); // key → same order, same partition
         }
+        if (broker.equals("all") || broker.equals("redis")) {
+            feed.publish(OrderEvent.of(req));              // S4: one XADD into the "feed" stream
+        }
+        // one business event, three brokers, three different jobs:
+        //   rabbit → work to do   ·   kafka → facts to keep   ·   redis → a moment to show
     }
 
     @PostMapping("/orders/burst/{count}")
@@ -52,7 +60,9 @@ class OrderController {
                 }
                 // Black Friday: one publish → email+sms+push queues via notify.* bindings
                 case "notify" -> rabbit.convertAndSend("notify.topic", "notify.all", OrderEvent.random());
-                default -> throw new IllegalArgumentException("broker must be rabbit, kafka, whale or notify");
+                // S4: fill the feed stream — watch XLEN climb and the MAXLEN cap hold
+                case "redis" -> feed.publish(OrderEvent.random());
+                default -> throw new IllegalArgumentException("broker must be rabbit, kafka, whale, notify or redis");
             }
         });
     }

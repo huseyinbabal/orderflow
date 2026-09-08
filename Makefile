@@ -108,6 +108,7 @@ kind-deploy: ## Build the app image, side-load it into kind, deploy everything (
 	kubectl apply -f k8s/kafka/schema-registry.yaml
 	kubectl apply -f k8s/kafka/kafka-exporter.yaml
 	kubectl apply -f k8s/kafka/kafka-ui.yaml
+	kubectl apply -f k8s/redis/redis.yaml
 	@echo "waiting for rabbitmq-default-user secret..." ; \
 	until kubectl get secret rabbitmq-default-user >/dev/null 2>&1; do sleep 5; done
 	kubectl apply -f k8s/app/orderflow.yaml
@@ -126,15 +127,16 @@ grafana: ## Port-forward Grafana → localhost:13000 (prints admin password)
 	@echo "Grafana → http://localhost:13000  (admin / $$(kubectl -n monitoring get secret kps-grafana -o jsonpath='{.data.admin-password}' | base64 -d))"
 	@echo "RabbitMQ dashboard → http://localhost:13000/d/Kn5xm-gZk/rabbitmq-overview"
 	@echo "Kafka dashboard    → http://localhost:13000/d/kafka-orderflow/kafka-orderflow-overview"
+	@echo "Redis dashboard    → http://localhost:13000/d/redis-orderflow/redis-streams-orderflow-overview"
 	kubectl -n monitoring port-forward svc/kps-grafana 13000:80
 
 prometheus: ## Port-forward Prometheus → localhost:19090
 	kubectl -n monitoring port-forward svc/kps-kube-prometheus-stack-prometheus 19090:9090
 
-k8s-burst: ## Burst N msgs (default 5000) via the in-cluster app; BROKER=rabbit|kafka|whale|notify (needs app-forward)
+k8s-burst: ## Burst N msgs (default 5000) via the in-cluster app; BROKER=rabbit|kafka|whale|notify|redis (needs app-forward)
 	curl -s -X POST 'localhost:18080/orders/burst/$(or $(N),5000)?broker=$(or $(BROKER),rabbit)'
 
-consumers-scale: ## Scale the Kafka consumer deployment to N pods (default 3) — the live lag-drain demo
+consumers-scale: ## Scale the consumer deployment to N pods (default 3) — lag-drain + feed-group + sweeper-lock demo
 	kubectl scale deploy/orderflow-consumer --replicas=$(or $(N),3)
 	kubectl get pods -l app=orderflow-consumer
 
@@ -172,12 +174,48 @@ workers-pause: ## Stop ALL rabbit listeners (intake keeps running — queues abs
 workers-resume: ## Restart the rabbit listeners (drain begins)
 	curl -s -X POST localhost:18080/admin/workers/resume
 
+## --- Session 4: Redis Streams — live feed (runs on kind; needs app-forward for the curls) ---
+
+REDIS_CLI := kubectl exec -i deploy/redis -c redis -- redis-cli
+
+feed-order: ## Publish ONE order into the feed stream only (?broker=redis)
+	curl -s -X POST 'localhost:18080/orders?broker=redis' -H 'Content-Type: application/json' \
+	  -d '{"orderId":"feed-1","customerId":"c-1","amount":49.90}'
+
+feed-burst: ## Burst N orders (default 20000) into the feed stream — watch XLEN climb, MAXLEN hold
+	curl -s -X POST 'localhost:18080/orders/burst/$(or $(N),20000)?broker=redis'
+
+feed-live: ## GET /feed/live — stream length, PEL depth, this-minute counters, last N entries
+	curl -s 'localhost:18080/feed/live?n=$(or $(N),10)' | python3 -m json.tool
+
+redis-cli: ## Open redis-cli inside the cluster (theory demo: XADD / XGROUP / XREADGROUP / XPENDING / XACK)
+	kubectl exec -it deploy/redis -c redis -- redis-cli
+
+feed-len: ## XLEN feed — current stream length
+	@$(REDIS_CLI) XLEN feed
+
+feed-groups: ## XINFO GROUPS feed — consumers, pending, lag per group
+	@$(REDIS_CLI) XINFO GROUPS feed
+
+feed-consumers: ## XINFO CONSUMERS feed dashboard — per-pod pending + idle time
+	@$(REDIS_CLI) XINFO CONSUMERS feed dashboard
+
+feed-pending: ## XPENDING feed dashboard — who is holding unacked entries (the PEL)
+	@$(REDIS_CLI) XPENDING feed dashboard
+
+feed-kill-pod: ## Delete ONE feed consumer pod mid-stream — its PEL entries go stuck, then the sweeper adopts them
+	kubectl delete pod $$(kubectl get pod -l app=orderflow-consumer \
+	  -o jsonpath='{.items[0].metadata.name}') --grace-period=0 --force
+
+sweeper-logs: ## Tail the consumer pods for sweeper adopt lines (which ONE pod holds the lock this tick)
+	kubectl logs -l app=orderflow-consumer -f --max-log-requests=12 --tail=20 | grep --line-buffered -E 'sweeper|adopted|joined group'
+
 ## --- Load testing (k6-operator) ---
 
 k6-install: ## Install the k6-operator (done once per cluster; kind-up does NOT include it)
 	helm upgrade --install k6-operator grafana/k6-operator -n k6-operator --create-namespace --wait
 
-k6-run: ## (Re)run the Black Friday load test (4 runners, ~3.5 min); BROKER=all|rabbit|kafka (default all)
+k6-run: ## (Re)run the Black Friday load test (4 runners, ~3.5 min); BROKER=all|rabbit|kafka|redis (default all)
 	kubectl delete testrun order-load --ignore-not-found
 	kubectl create configmap k6-order-load --from-file=k6/load-test.js --dry-run=client -o yaml | kubectl apply -f -
 	sed 's/BROKER_PLACEHOLDER/$(or $(BROKER),all)/' k6/testrun.yaml | kubectl apply -f -
