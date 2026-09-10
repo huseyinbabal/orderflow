@@ -260,14 +260,17 @@ cdc-status: ## Connector + task state (expect RUNNING / RUNNING)
 	@$(CONNECT) curl -s localhost:8083/connectors/orderflow-outbox/status | python3 -m json.tool
 
 cdc-demo: ## Path A: place an order → one commit writes BOTH rows → Debezium turns the outbox row into a Kafka message
-	@echo "1) place order (writes orders + outbox in ONE transaction)"
-	curl -s -X POST localhost:18080/cdc/orders -H 'Content-Type: application/json' \
-	  -d '{"customerId":"c-1","amount":149.90}' ; echo
-	@echo "\n2) what the app wrote to the outbox table:"
-	@$(PSQL) -c "select type, aggregate_id, payload from outbox order by created_at desc limit 3;"
-	@echo "\n3) what Debezium put on Kafka (waits ~8s for the message):"
-	@$(KAFKA_POD) /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
-	  --topic outbox.event.Order --from-beginning --timeout-ms 8000 --property print.key=true || true
+	@set -e ; \
+	echo "1) place order (writes orders + outbox in ONE transaction)" ; \
+	ID=$$(curl -s -X POST localhost:18080/cdc/orders -H 'Content-Type: application/json' \
+	  -d '{"customerId":"c-1","amount":149.90}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["orderId"])') ; \
+	echo "   orderId $$ID" ; \
+	echo "\n2) what the app wrote to the outbox table (this order):" ; \
+	$(PSQL) -c "select type, aggregate_id, payload from outbox where aggregate_id = '$$ID';" ; \
+	echo "\n3) what Debezium put on Kafka for THIS order (waits ~10s):" ; \
+	$(KAFKA_POD) /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+	  --topic outbox.event.Order --from-beginning --timeout-ms 10000 --property print.key=true 2>/dev/null \
+	  | grep -F "$$ID" || echo "   (no message yet — check: make cdc-status)"
 
 cdc-outbox: ## Show the app-side outbox (GET /cdc/outbox)
 	curl -s localhost:18080/cdc/outbox | python3 -m json.tool
