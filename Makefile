@@ -11,7 +11,7 @@ help: ## List all targets
 
 ## --- Environment ---
 
-up: ## Start RabbitMQ + Kafka + Redis (RabbitMQ UI → localhost:15672, guest/guest)
+up: ## Start RabbitMQ + Kafka + Redis + Postgres + Kafka Connect (RabbitMQ UI → :15672, guest/guest)
 	$(COMPOSE) up -d
 	$(COMPOSE) ps
 
@@ -229,3 +229,49 @@ k6-summary: ## Print the k6 end-of-test summary from runner 1
 
 k6-stop: ## Delete the TestRun (stops a running test)
 	kubectl delete testrun order-load --ignore-not-found
+
+## --- CDC (outbox + Debezium) vs Event Sourcing — local, docker compose ---
+## Needs: `make up` (kafka + postgres + connect) then `make run` in another terminal.
+
+PSQL := $(COMPOSE) exec -T postgres psql -U orderflow -d orderflow
+
+cdc-register: ## Register the Debezium Postgres connector (outbox → Kafka via EventRouter SMT)
+	@until curl -sf localhost:8083/ >/dev/null; do echo "waiting for Kafka Connect..."; sleep 3; done
+	curl -s -X POST -H 'Content-Type: application/json' \
+	  --data @debezium/outbox-connector.json localhost:8083/connectors | python3 -m json.tool
+
+cdc-status: ## Connector + task state (expect RUNNING / RUNNING)
+	curl -s localhost:8083/connectors/orderflow-outbox/status | python3 -m json.tool
+
+cdc-demo: ## Path A: place an order → one commit writes BOTH rows → Debezium turns the outbox row into a Kafka message
+	@echo "1) place order (writes orders + outbox in ONE transaction)"
+	curl -s -X POST localhost:8080/cdc/orders -H 'Content-Type: application/json' \
+	  -d '{"customerId":"c-1","amount":149.90}' ; echo
+	@echo "\n2) what the app wrote to the outbox table:"
+	@$(PSQL) -c "select type, aggregate_id, payload from outbox order by created_at desc limit 3;"
+	@echo "\n3) what Debezium put on Kafka (Ctrl-C after the message shows):"
+	$(COMPOSE) exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+	  --topic outbox.event.Order --from-beginning --timeout-ms 8000 --property print.key=true || true
+
+cdc-outbox: ## Show the app-side outbox (GET /cdc/outbox)
+	curl -s localhost:8080/cdc/outbox | python3 -m json.tool
+
+es-demo: ## Path B: open → add items → checkout, all as appended events; then rebuild state from the log
+	@set -e ; \
+	ID=$$(curl -s -X POST localhost:8080/es/orders -H 'Content-Type: application/json' \
+	  -d '{"customerId":"c-9"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["orderId"])') ; \
+	echo "1) opened order $$ID" ; \
+	echo "2) add two items + checkout — three more events, no UPDATE anywhere" ; \
+	curl -s -X POST localhost:8080/es/orders/$$ID/items -H 'Content-Type: application/json' -d '{"sku":"BOOK-1","price":29.90}' ; \
+	curl -s -X POST localhost:8080/es/orders/$$ID/items -H 'Content-Type: application/json' -d '{"sku":"MUG-1","price":12.50}' ; \
+	curl -s -X POST localhost:8080/es/orders/$$ID/checkout ; \
+	echo "\n3) the event store — this IS the order:" ; \
+	$(PSQL) -c "select version, type, payload from es_event where aggregate_id = '$$ID' order by version;" ; \
+	echo "4) state, rebuilt from those events on the fly:" ; \
+	curl -s localhost:8080/es/orders/$$ID | python3 -m json.tool
+
+es-history: ## Event log for an order:  make es-history ID=<uuid>
+	curl -s localhost:8080/es/orders/$(ID)/history | python3 -m json.tool
+
+cdc-psql: ## psql into the branch's Postgres
+	$(COMPOSE) exec postgres psql -U orderflow -d orderflow

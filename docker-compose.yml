@@ -35,3 +35,29 @@ services:
     image: redis:8
     ports:
       - "6379:6379"
+
+  # --- CDC-outbox vs event-sourcing branch ---
+  postgres:
+    image: postgres:16
+    command: ["postgres", "-c", "wal_level=logical"]   # Debezium needs logical decoding
+    environment:
+      POSTGRES_DB: orderflow
+      POSTGRES_USER: orderflow
+      POSTGRES_PASSWORD: orderflow
+    ports:
+      - "5434:5432"          # 5434 on the host — 5432 is often already taken
+
+  connect:
+    image: debezium/connect:3.0.0.Final                 # Kafka Connect + Debezium bundled
+    ports:
+      - "8083:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:19092
+      GROUP_ID: orderflow-connect
+      CONFIG_STORAGE_TOPIC: connect_configs
+      OFFSET_STORAGE_TOPIC: connect_offsets
+      STATUS_STORAGE_TOPIC: connect_statuses
+      KEY_CONVERTER: org.apache.kafka.connect.storage.StringConverter
+      VALUE_CONVERTER: org.apache.kafka.connect.json.JsonConverter
+      CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE: "false"
+    depends_on: [kafka, postgres]

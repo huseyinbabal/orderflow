@@ -6,6 +6,7 @@ orderflow:
     rabbit: true
     kafka: true
     redis: true                   # feed consumer group + PEL sweeper (API pods set this false)
+    cdc: true                     # in-app consumer of the Debezium outbox topic (CDC-vs-ES demo)
   feed:
     maxlen: 100000                # approximate MAXLEN on the "feed" stream — memory cap
     sweeper:
@@ -42,3 +43,16 @@ spring:
         specific.avro.reader: true       # typed OrderEvent, not GenericRecord
     properties:
       schema.registry.url: ${SCHEMA_REGISTRY_URL:http://localhost:8081}
+
+  # --- CDC-outbox vs event-sourcing branch ---
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/orderflow}
+    username: ${SPRING_DATASOURCE_USERNAME:orderflow}
+    password: ${SPRING_DATASOURCE_PASSWORD:orderflow}
+  jpa:
+    hibernate:
+      ddl-auto: none              # tables come from schema.sql — reviewed like any migration
+    open-in-view: false
+  sql:
+    init:
+      mode: always                # run schema.sql on startup (idempotent CREATE TABLE IF NOT EXISTS)
