@@ -244,9 +244,10 @@ k6-stop: ## Delete the TestRun (stops a running test)
 ## Needs: `make kind-deploy` done + `make app-forward` (localhost:18080) in another terminal.
 ## Then once: `make cdc-register`.
 
-# psql on the CloudNativePG primary; kafka-connect REST via a curl exec into that pod
+# psql on the CloudNativePG primary (superuser via the pod's local socket — peer auth);
+# kafka-connect REST via a curl exec into that pod
 PG_PRIMARY := kubectl get pod -l cnpg.io/cluster=orderflow-db,role=primary -o jsonpath='{.items[0].metadata.name}'
-PSQL       := kubectl exec -i $$($(PG_PRIMARY)) -c postgres -- psql -U orderflow -d orderflow
+PSQL       := kubectl exec -i $$($(PG_PRIMARY)) -c postgres -- psql -U postgres -d orderflow
 CONNECT    := kubectl exec -i deploy/kafka-connect --
 KAFKA_POD  := kubectl exec -i deploy/kafka --
 
@@ -284,7 +285,7 @@ es-demo: ## Path B: open → add items → checkout, all as appended events; the
 	curl -s -X POST localhost:18080/es/orders/$$ID/items -H 'Content-Type: application/json' -d '{"sku":"MUG-1","price":12.50}' ; \
 	curl -s -X POST localhost:18080/es/orders/$$ID/checkout ; \
 	echo "\n3) the event store — this IS the order:" ; \
-	kubectl exec -i $$($(PG_PRIMARY)) -c postgres -- psql -U orderflow -d orderflow \
+	kubectl exec -i $$($(PG_PRIMARY)) -c postgres -- psql -U postgres -d orderflow \
 	  -c "select version, type, payload from es_event where aggregate_id = '$$ID' order by version;" ; \
 	echo "4) state, rebuilt from those events on the fly:" ; \
 	curl -s localhost:18080/es/orders/$$ID | python3 -m json.tool
@@ -293,4 +294,4 @@ es-history: ## Event log for an order:  make es-history ID=<uuid>
 	curl -s localhost:18080/es/orders/$(ID)/history | python3 -m json.tool
 
 cdc-psql: ## psql into the CloudNativePG primary
-	kubectl exec -it $$($(PG_PRIMARY)) -c postgres -- psql -U orderflow -d orderflow
+	kubectl exec -it $$($(PG_PRIMARY)) -c postgres -- psql -U postgres -d orderflow
