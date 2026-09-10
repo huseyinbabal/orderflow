@@ -1,0 +1,17 @@
+apiVersion: k6.io/v1alpha1
+kind: TestRun
+metadata: { name: order-10k, namespace: default }
+spec:
+  parallelism: 6
+  arguments: --tag testid=order-10k
+  script:
+    configMap: { name: k6-load-10k, file: k6-load-10k.js }
+  runner:
+    nodeSelector: { workload: load }
+    tolerations: [{ key: workload, operator: Equal, value: load, effect: NoSchedule }]
+    env:
+      - { name: TOTAL_RPS, value: "10000" }
+      - { name: SUSTAIN, value: "SUSTAIN_PLACEHOLDER" }
+    resources:
+      requests: { cpu: "800m", memory: 512Mi }
+      limits: { cpu: "1200m", memory: 1Gi }
