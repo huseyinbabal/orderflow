@@ -1,53 +1,60 @@
-# Session 4: Redis + redis_exporter on the kind cluster.
-# Single node, no persistence tuning — the feed is ephemeral by design (that IS
-# the durability slide). redis_exporter is told to watch the "feed" stream so
-# Prometheus gets XLEN / group / PEL metrics for the Grafana dashboard.
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: redis
-  namespace: default
-spec:
-  replicas: 1
-  selector:
-    matchLabels: { app: redis }
-  template:
-    metadata:
-      labels: { app: redis }
-    spec:
-      containers:
-        - name: redis
-          image: redis:8
-          args: ["--appendonly", "yes", "--appendfsync", "everysec"]  # AOF everysec — the documented ~1s risk window
-          ports:
-            - { containerPort: 6379, name: redis }
-          resources:
-            requests: { cpu: 100m, memory: 128Mi }
-            limits: { cpu: 500m, memory: 512Mi }
-        - name: exporter
-          image: oliver006/redis_exporter:v1.62.0
-          env:
-            - { name: REDIS_ADDR, value: "redis://localhost:6379" }
-            # per-stream metrics: redis_stream_length, redis_stream_group_*,
-            # redis_stream_group_pending (the PEL gauge the dashboard alerts on)
-            - { name: REDIS_EXPORTER_CHECK_SINGLE_STREAMS, value: "feed" }
-          ports:
-            - { containerPort: 9121, name: metrics }
-          resources:
-            requests: { cpu: 25m, memory: 32Mi }
-            limits: { cpu: 100m, memory: 64Mi }
+# Session 4: Redis for the live activity feed — now managed by the
+# OT-CONTAINER-KIT redis-operator (installed in `make kind-up`), same as RabbitMQ
+# runs under its cluster-operator. Standalone (single node): the feed is
+# ephemeral by design — that IS the durability slide.
+#
+# The operator creates these Services (client port stays 6379, name stays "redis",
+# so the app's SPRING_DATA_REDIS_HOST=redis is unchanged):
+#   redis            → client        (6379)
+#   redis-headless   → headless
+#   redis-metrics    → redis-exporter (9121)   ← ServiceMonitor target below
 ---
 apiVersion: v1
-kind: Service
+kind: ConfigMap
+metadata:
+  name: redis-additional-config
+  namespace: default
+data:
+  redis-additional.conf: |
+    # AOF on, fsync every second — the documented ~1s risk window (durability slide)
+    appendonly yes
+    appendfsync everysec
+---
+apiVersion: redis.redis.opstreelabs.in/v1beta2
+kind: Redis
 metadata:
   name: redis
   namespace: default
-  labels: { app: redis }
 spec:
-  selector: { app: redis }
-  ports:
-    - { name: redis, port: 6379, targetPort: redis }
-    - { name: metrics, port: 9121, targetPort: metrics }
+  podSecurityContext:
+    runAsUser: 1000
+    fsGroup: 1000
+  kubernetesConfig:
+    image: quay.io/opstree/redis:v8.2.9        # Redis 8
+    imagePullPolicy: IfNotPresent
+    resources:
+      requests: { cpu: 100m, memory: 128Mi }
+      limits: { cpu: 500m, memory: 512Mi }
+  redisConfig:
+    additionalRedisConfig: redis-additional-config
+  redisExporter:
+    enabled: true
+    image: oliver006/redis_exporter:v1.62.0    # same exporter the Grafana dashboard was built against
+    imagePullPolicy: IfNotPresent
+    env:
+      # per-stream metrics: redis_stream_length, redis_stream_group_*,
+      # redis_stream_group_messages_pending (the PEL gauge the dashboard alerts on)
+      - { name: REDIS_EXPORTER_CHECK_SINGLE_STREAMS, value: "feed" }
+    resources:
+      requests: { cpu: 25m, memory: 32Mi }
+      limits: { cpu: 100m, memory: 64Mi }
+  storage:
+    volumeClaimTemplate:
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -55,8 +62,12 @@ metadata:
   name: redis
   namespace: default
 spec:
+  namespaceSelector:
+    matchNames: [default]
   selector:
-    matchLabels: { app: redis }
+    matchLabels:
+      redis_setup_type: standalone
+      app.kubernetes.io/component: metrics
   endpoints:
-    - port: metrics
+    - port: redis-exporter
       interval: 15s

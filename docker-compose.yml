@@ -36,7 +36,7 @@ services:
     ports:
       - "6379:6379"
 
-  # --- CDC-outbox vs event-sourcing branch ---
+  # --- CDC + Outbox vs Event Sourcing (Adım 0) — compose fallback for the kind path ---
   postgres:
     image: postgres:16
     command: ["postgres", "-c", "wal_level=logical"]   # Debezium needs logical decoding
@@ -46,6 +46,11 @@ services:
       POSTGRES_PASSWORD: orderflow
     ports:
       - "5434:5432"          # 5434 on the host — 5432 is often already taken
+    networks:
+      default:
+        # same hostname the Debezium connector uses on kind (CNPG's -rw service),
+        # so debezium/outbox-connector.json is identical in both environments
+        aliases: [orderflow-db-rw]
 
   connect:
     image: debezium/connect:3.0.0.Final                 # Kafka Connect + Debezium bundled

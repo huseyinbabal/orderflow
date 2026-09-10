@@ -1,0 +1,47 @@
+# Session 4 (Adım 0): Postgres for the "CDC + Outbox vs Event Sourcing" demo,
+# managed by the CloudNativePG operator (installed in `make kind-up`), same style
+# as RabbitMQ under its cluster-operator.
+#
+# CloudNativePG sets wal_level=logical by default, so Debezium's pgoutput plugin
+# works out of the box. postInitApplicationSQL grants the app role REPLICATION so
+# Debezium can open a logical replication slot; the connector creates its own
+# publication (publication.autocreate.mode=filtered → only needs table ownership).
+#
+# The password is fixed (not random) via this secret so the static Debezium
+# connector JSON keeps working — fine for a throwaway demo cluster.
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: orderflow-db-app
+  namespace: default
+type: kubernetes.io/basic-auth
+stringData:
+  username: orderflow
+  password: orderflow
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: orderflow-db
+  namespace: default
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  primaryUpdateStrategy: unsupervised
+
+  bootstrap:
+    initdb:
+      database: orderflow
+      owner: orderflow
+      secret:
+        name: orderflow-db-app
+      postInitApplicationSQL:
+        - ALTER ROLE orderflow WITH REPLICATION
+
+  storage:
+    size: 1Gi
+
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { cpu: "1", memory: 512Mi }

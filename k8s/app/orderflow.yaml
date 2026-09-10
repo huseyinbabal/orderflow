@@ -2,6 +2,8 @@
 # they live in their own deployment (orderflow-consumer.yaml) so they scale independently.
 # The feed CONSUMER + sweeper are off here too (ORDERFLOW_LISTENERS_REDIS=false): the API
 # only does XADD (publish) and serves GET /feed/live.
+# Adım 0: this pod serves the /cdc and /es REST endpoints (Postgres via CloudNativePG),
+# but NOT the Debezium outbox listener (ORDERFLOW_LISTENERS_CDC=false) — that's on the consumer.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -26,7 +28,15 @@ spec:
             - { name: SCHEMA_REGISTRY_URL, value: "http://cp-schema-registry:8081" }
             - { name: ORDERFLOW_LISTENERS_KAFKA, value: "false" }
             - { name: ORDERFLOW_LISTENERS_REDIS, value: "false" }   # publish + /feed/live only
+            - { name: ORDERFLOW_LISTENERS_CDC, value: "false" }     # REST /cdc + /es only; listener runs on the consumer
             - { name: SPRING_DATA_REDIS_HOST, value: "redis" }
+            - { name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://orderflow-db-rw:5432/orderflow" }
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: orderflow-db-app, key: username }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: orderflow-db-app, key: password }
             - { name: SPRING_RABBITMQ_HOST, value: "rabbitmq" }
             - name: SPRING_RABBITMQ_USERNAME
               valueFrom:

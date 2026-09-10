@@ -27,7 +27,15 @@ spec:
             - { name: SCHEMA_REGISTRY_URL, value: "http://cp-schema-registry:8081" }
             - { name: ORDERFLOW_LISTENERS_RABBIT, value: "false" }
             - { name: ORDERFLOW_LISTENERS_REDIS, value: "true" }    # feed consumer group + sweeper
+            - { name: ORDERFLOW_LISTENERS_CDC, value: "true" }      # Adım 0: Debezium outbox.event.Order listener
             - { name: SPRING_DATA_REDIS_HOST, value: "redis" }
+            - { name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://orderflow-db-rw:5432/orderflow" }
+            - name: SPRING_DATASOURCE_USERNAME
+              valueFrom:
+                secretKeyRef: { name: orderflow-db-app, key: username }
+            - name: SPRING_DATASOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: orderflow-db-app, key: password }
             - { name: SPRING_RABBITMQ_HOST, value: "rabbitmq" }
             - name: SPRING_RABBITMQ_USERNAME
               valueFrom:

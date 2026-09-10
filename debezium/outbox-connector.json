@@ -4,7 +4,7 @@
     "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
     "tasks.max": "1",
 
-    "database.hostname": "postgres",
+    "database.hostname": "orderflow-db-rw",
     "database.port": "5432",
     "database.user": "orderflow",
     "database.password": "orderflow",
@@ -14,6 +14,9 @@
 
     "table.include.list": "public.outbox",
     "tombstones.on.delete": "false",
+
+    "publication.autocreate.mode": "filtered",
+    "slot.name": "debezium_outbox",
 
     "transforms": "outbox",
     "transforms.outbox.type": "io.debezium.transforms.outbox.EventRouter",

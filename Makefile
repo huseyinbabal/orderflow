@@ -80,12 +80,17 @@ replay-analytics: ## Reset 'analytics' offsets to earliest — STOP the app firs
 
 ## --- Kubernetes (kind) ---
 
-kind-up: ## Create 5-node kind cluster + cert-manager + RabbitMQ operator + kube-prometheus-stack + dashboard
+kind-up: ## Create 5-node kind cluster + operators (cert-manager, RabbitMQ, CloudNativePG, redis-operator) + kube-prometheus-stack
 	kind create cluster --config k8s/kind-config.yaml --wait 180s
 	kubectl apply -f https://github.com/cert-manager/cert-manager/releases/latest/download/cert-manager.yaml
 	kubectl -n cert-manager wait --for=condition=Available deploy --all --timeout=180s
 	kubectl apply -f https://github.com/rabbitmq/cluster-operator/releases/latest/download/cluster-operator.yml
 	kubectl -n rabbitmq-system wait --for=condition=Available deploy --all --timeout=180s
+	kubectl apply --server-side -f https://raw.githubusercontent.com/cloudnative-pg/cloudnative-pg/release-1.30/releases/cnpg-1.30.0.yaml
+	kubectl -n cnpg-system wait --for=condition=Available deploy --all --timeout=180s
+	helm repo add ot-helm https://ot-container-kit.github.io/helm-charts/ --force-update
+	helm repo update ot-helm
+	helm upgrade --install redis-operator ot-helm/redis-operator -n redis-operator --create-namespace --wait --timeout 5m
 	helm upgrade --install kps prometheus-community/kube-prometheus-stack -n monitoring --create-namespace \
 	  --set prometheus.prometheusSpec.podMonitorSelectorNilUsesHelmValues=false \
 	  --set prometheus.prometheusSpec.serviceMonitorSelectorNilUsesHelmValues=false \
@@ -108,7 +113,11 @@ kind-deploy: ## Build the app image, side-load it into kind, deploy everything (
 	kubectl apply -f k8s/kafka/schema-registry.yaml
 	kubectl apply -f k8s/kafka/kafka-exporter.yaml
 	kubectl apply -f k8s/kafka/kafka-ui.yaml
+	kubectl apply -f k8s/kafka/kafka-connect.yaml
 	kubectl apply -f k8s/redis/redis.yaml
+	kubectl apply -f k8s/postgres/cluster.yaml
+	@echo "waiting for the Postgres cluster (CloudNativePG)..." ; \
+	kubectl wait --for=condition=Ready cluster/orderflow-db --timeout=300s
 	@echo "waiting for rabbitmq-default-user secret..." ; \
 	until kubectl get secret rabbitmq-default-user >/dev/null 2>&1; do sleep 5; done
 	kubectl apply -f k8s/app/orderflow.yaml
@@ -116,6 +125,7 @@ kind-deploy: ## Build the app image, side-load it into kind, deploy everything (
 	kubectl rollout restart deploy/orderflow deploy/orderflow-consumer
 	kubectl wait --for=condition=Available deploy/orderflow deploy/orderflow-consumer --timeout=300s
 	kubectl get pods -o wide
+	@echo "Adım 0 için: kind-deploy sonrası  →  make cdc-register  (Debezium connector)"
 
 kind-down: ## Delete the kind cluster
 	kind delete cluster --name orderflow
@@ -230,48 +240,57 @@ k6-summary: ## Print the k6 end-of-test summary from runner 1
 k6-stop: ## Delete the TestRun (stops a running test)
 	kubectl delete testrun order-load --ignore-not-found
 
-## --- CDC (outbox + Debezium) vs Event Sourcing — local, docker compose ---
-## Needs: `make up` (kafka + postgres + connect) then `make run` in another terminal.
+## --- Adım 0: CDC (outbox + Debezium) vs Event Sourcing — on kind ---
+## Needs: `make kind-deploy` done + `make app-forward` (localhost:18080) in another terminal.
+## Then once: `make cdc-register`.
 
-PSQL := $(COMPOSE) exec -T postgres psql -U orderflow -d orderflow
+# psql on the CloudNativePG primary; kafka-connect REST via a curl exec into that pod
+PG_PRIMARY := kubectl get pod -l cnpg.io/cluster=orderflow-db,role=primary -o jsonpath='{.items[0].metadata.name}'
+PSQL       := kubectl exec -i $$($(PG_PRIMARY)) -c postgres -- psql -U orderflow -d orderflow
+CONNECT    := kubectl exec -i deploy/kafka-connect --
+KAFKA_POD  := kubectl exec -i deploy/kafka --
 
 cdc-register: ## Register the Debezium Postgres connector (outbox → Kafka via EventRouter SMT)
-	@until curl -sf localhost:8083/ >/dev/null; do echo "waiting for Kafka Connect..."; sleep 3; done
-	curl -s -X POST -H 'Content-Type: application/json' \
-	  --data @debezium/outbox-connector.json localhost:8083/connectors | python3 -m json.tool
+	@until $(CONNECT) curl -sf localhost:8083/ >/dev/null; do echo "waiting for Kafka Connect..."; sleep 3; done
+	$(CONNECT) curl -s -X POST -H 'Content-Type: application/json' --data-binary @- \
+	  localhost:8083/connectors < debezium/outbox-connector.json | python3 -m json.tool
 
 cdc-status: ## Connector + task state (expect RUNNING / RUNNING)
-	curl -s localhost:8083/connectors/orderflow-outbox/status | python3 -m json.tool
+	@$(CONNECT) curl -s localhost:8083/connectors/orderflow-outbox/status | python3 -m json.tool
 
 cdc-demo: ## Path A: place an order → one commit writes BOTH rows → Debezium turns the outbox row into a Kafka message
 	@echo "1) place order (writes orders + outbox in ONE transaction)"
-	curl -s -X POST localhost:8080/cdc/orders -H 'Content-Type: application/json' \
+	curl -s -X POST localhost:18080/cdc/orders -H 'Content-Type: application/json' \
 	  -d '{"customerId":"c-1","amount":149.90}' ; echo
 	@echo "\n2) what the app wrote to the outbox table:"
 	@$(PSQL) -c "select type, aggregate_id, payload from outbox order by created_at desc limit 3;"
-	@echo "\n3) what Debezium put on Kafka (Ctrl-C after the message shows):"
-	$(COMPOSE) exec kafka /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
+	@echo "\n3) what Debezium put on Kafka (waits ~8s for the message):"
+	@$(KAFKA_POD) /opt/kafka/bin/kafka-console-consumer.sh --bootstrap-server localhost:9092 \
 	  --topic outbox.event.Order --from-beginning --timeout-ms 8000 --property print.key=true || true
 
 cdc-outbox: ## Show the app-side outbox (GET /cdc/outbox)
-	curl -s localhost:8080/cdc/outbox | python3 -m json.tool
+	curl -s localhost:18080/cdc/outbox | python3 -m json.tool
+
+cdc-listener-logs: ## Tail the in-app CDC listener ("CDC ⇒ outbox.event.Order ...") on the consumer pods
+	kubectl logs -l app=orderflow-consumer -f --max-log-requests=12 --tail=20 | grep --line-buffered 'CDC'
 
 es-demo: ## Path B: open → add items → checkout, all as appended events; then rebuild state from the log
 	@set -e ; \
-	ID=$$(curl -s -X POST localhost:8080/es/orders -H 'Content-Type: application/json' \
+	ID=$$(curl -s -X POST localhost:18080/es/orders -H 'Content-Type: application/json' \
 	  -d '{"customerId":"c-9"}' | python3 -c 'import sys,json;print(json.load(sys.stdin)["orderId"])') ; \
 	echo "1) opened order $$ID" ; \
 	echo "2) add two items + checkout — three more events, no UPDATE anywhere" ; \
-	curl -s -X POST localhost:8080/es/orders/$$ID/items -H 'Content-Type: application/json' -d '{"sku":"BOOK-1","price":29.90}' ; \
-	curl -s -X POST localhost:8080/es/orders/$$ID/items -H 'Content-Type: application/json' -d '{"sku":"MUG-1","price":12.50}' ; \
-	curl -s -X POST localhost:8080/es/orders/$$ID/checkout ; \
+	curl -s -X POST localhost:18080/es/orders/$$ID/items -H 'Content-Type: application/json' -d '{"sku":"BOOK-1","price":29.90}' ; \
+	curl -s -X POST localhost:18080/es/orders/$$ID/items -H 'Content-Type: application/json' -d '{"sku":"MUG-1","price":12.50}' ; \
+	curl -s -X POST localhost:18080/es/orders/$$ID/checkout ; \
 	echo "\n3) the event store — this IS the order:" ; \
-	$(PSQL) -c "select version, type, payload from es_event where aggregate_id = '$$ID' order by version;" ; \
+	kubectl exec -i $$($(PG_PRIMARY)) -c postgres -- psql -U orderflow -d orderflow \
+	  -c "select version, type, payload from es_event where aggregate_id = '$$ID' order by version;" ; \
 	echo "4) state, rebuilt from those events on the fly:" ; \
-	curl -s localhost:8080/es/orders/$$ID | python3 -m json.tool
+	curl -s localhost:18080/es/orders/$$ID | python3 -m json.tool
 
 es-history: ## Event log for an order:  make es-history ID=<uuid>
-	curl -s localhost:8080/es/orders/$(ID)/history | python3 -m json.tool
+	curl -s localhost:18080/es/orders/$(ID)/history | python3 -m json.tool
 
-cdc-psql: ## psql into the branch's Postgres
-	$(COMPOSE) exec postgres psql -U orderflow -d orderflow
+cdc-psql: ## psql into the CloudNativePG primary
+	kubectl exec -it $$($(PG_PRIMARY)) -c postgres -- psql -U orderflow -d orderflow

@@ -1,0 +1,54 @@
+# Session 4 add-on: Kafka Connect + Debezium on the kind cluster.
+# Runs the Postgres connector with the EventRouter (outbox) SMT for Adım 0.
+# The debezium/connect image bundles Kafka Connect and every Debezium connector.
+# Connect stores its own config/offset/status in Kafka topics (created on first run).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: kafka-connect
+  namespace: default
+spec:
+  replicas: 1
+  selector:
+    matchLabels: { app: kafka-connect }
+  template:
+    metadata:
+      labels: { app: kafka-connect }
+    spec:
+      containers:
+        - name: connect
+          image: debezium/connect:3.0.0.Final
+          ports:
+            - { containerPort: 8083, name: rest }
+          env:
+            # bare forms the debezium/connect entrypoint special-cases
+            - { name: BOOTSTRAP_SERVERS, value: "kafka:9092" }
+            - { name: GROUP_ID, value: "orderflow-connect" }
+            - { name: CONFIG_STORAGE_TOPIC, value: "connect_configs" }
+            - { name: OFFSET_STORAGE_TOPIC, value: "connect_offsets" }
+            - { name: STATUS_STORAGE_TOPIC, value: "connect_statuses" }
+            - { name: KEY_CONVERTER, value: "org.apache.kafka.connect.storage.StringConverter" }
+            - { name: VALUE_CONVERTER, value: "org.apache.kafka.connect.json.JsonConverter" }
+            # single-broker kind Kafka → every internal topic must be RF 1 (default is 3)
+            - { name: CONNECT_CONFIG_STORAGE_REPLICATION_FACTOR, value: "1" }
+            - { name: CONNECT_OFFSET_STORAGE_REPLICATION_FACTOR, value: "1" }
+            - { name: CONNECT_STATUS_STORAGE_REPLICATION_FACTOR, value: "1" }
+            - { name: CONNECT_VALUE_CONVERTER_SCHEMAS_ENABLE, value: "false" }
+          readinessProbe:
+            httpGet: { path: /, port: rest }
+            initialDelaySeconds: 15
+            periodSeconds: 10
+          resources:
+            requests: { cpu: 200m, memory: 512Mi }
+            limits: { cpu: "1", memory: 1Gi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: kafka-connect
+  namespace: default
+  labels: { app: kafka-connect }
+spec:
+  selector: { app: kafka-connect }
+  ports:
+    - { name: rest, port: 8083, targetPort: rest }
