@@ -186,7 +186,7 @@ workers-resume: ## Restart the rabbit listeners (drain begins)
 
 ## --- Session 4: Redis Streams — live feed (runs on kind; needs app-forward for the curls) ---
 
-REDIS_CLI := kubectl exec -i deploy/redis -c redis -- redis-cli
+REDIS_CLI := kubectl exec -i sts/redis -c redis -- redis-cli
 
 feed-order: ## Publish ONE order into the feed stream only (?broker=redis)
 	curl -s -X POST 'localhost:18080/orders?broker=redis' -H 'Content-Type: application/json' \
@@ -199,7 +199,7 @@ feed-live: ## GET /feed/live — stream length, PEL depth, this-minute counters,
 	curl -s 'localhost:18080/feed/live?n=$(or $(N),10)' | python3 -m json.tool
 
 redis-cli: ## Open redis-cli inside the cluster (theory demo: XADD / XGROUP / XREADGROUP / XPENDING / XACK)
-	kubectl exec -it deploy/redis -c redis -- redis-cli
+	kubectl exec -it sts/redis -c redis -- redis-cli
 
 feed-len: ## XLEN feed — current stream length
 	@$(REDIS_CLI) XLEN feed
