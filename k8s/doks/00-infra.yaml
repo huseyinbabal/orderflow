@@ -1,0 +1,97 @@
+# Throwaway perf-test infra on DOKS — Postgres / Redis / RabbitMQ / Schema Registry.
+# These are only here because the merged app needs them to BOOT; the perf test
+# only exercises the Kafka path. All land on the untainted `system` pool.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: postgres, namespace: default }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata: { labels: { app: postgres } }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16
+          env:
+            - { name: POSTGRES_DB, value: orderflow }
+            - { name: POSTGRES_USER, value: orderflow }
+            - { name: POSTGRES_PASSWORD, value: orderflow }
+            - { name: PGDATA, value: /var/lib/postgresql/data/pgdata }
+          ports: [{ containerPort: 5432 }]
+          volumeMounts: [{ name: d, mountPath: /var/lib/postgresql/data }]
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+      volumes: [{ name: d, emptyDir: {} }]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: postgres, namespace: default }
+spec: { selector: { app: postgres }, ports: [{ port: 5432, targetPort: 5432 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: redis, namespace: default }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata: { labels: { app: redis } }
+    spec:
+      containers:
+        - name: redis
+          image: redis:8
+          ports: [{ containerPort: 6379 }]
+          resources: { requests: { cpu: 50m, memory: 128Mi }, limits: { cpu: 300m, memory: 256Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: redis, namespace: default }
+spec: { selector: { app: redis }, ports: [{ port: 6379, targetPort: 6379 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: rabbitmq, namespace: default }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: rabbitmq } }
+  template:
+    metadata: { labels: { app: rabbitmq } }
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:4
+          ports: [{ containerPort: 5672 }]
+          resources: { requests: { cpu: 100m, memory: 256Mi }, limits: { cpu: 500m, memory: 512Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: rabbitmq, namespace: default }
+spec: { selector: { app: rabbitmq }, ports: [{ port: 5672, targetPort: 5672 }] }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: schema-registry, namespace: default }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: schema-registry } }
+  template:
+    metadata: { labels: { app: schema-registry } }
+    spec:
+      enableServiceLinks: false          # else k8s injects SCHEMA_REGISTRY_PORT=tcp://... and cp's configure script bails
+      containers:
+        - name: sr
+          image: confluentinc/cp-schema-registry:8.0.0
+          env:
+            - { name: SCHEMA_REGISTRY_HOST_NAME, value: schema-registry }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_BOOTSTRAP_SERVERS, value: "PLAINTEXT://kafka:9092" }
+            - { name: SCHEMA_REGISTRY_LISTENERS, value: "http://0.0.0.0:8081" }
+            - { name: SCHEMA_REGISTRY_METADATA_ENCODER_SECRET, value: "perftest-encoder-secret" }
+            - { name: SCHEMA_REGISTRY_KAFKASTORE_TOPIC_REPLICATION_FACTOR, value: "3" }
+          ports: [{ containerPort: 8081 }]
+          resources: { requests: { cpu: 100m, memory: 384Mi }, limits: { cpu: 500m, memory: 768Mi } }
+---
+apiVersion: v1
+kind: Service
+metadata: { name: schema-registry, namespace: default }
+spec: { selector: { app: schema-registry }, ports: [{ port: 8081, targetPort: 8081 }] }

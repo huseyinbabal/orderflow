@@ -1,0 +1,89 @@
+# OrderFlow producer (API) + consumer, on the dedicated `app` pool.
+# Image comes from DOCR (doctl kubernetes cluster registry add wires the pull secret).
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: orderflow, namespace: default }
+spec:
+  replicas: 3
+  selector: { matchLabels: { app: orderflow } }
+  template:
+    metadata: { labels: { app: orderflow } }
+    spec:
+      nodeSelector: { workload: app }
+      tolerations: [{ key: workload, operator: Equal, value: app, effect: NoSchedule }]
+      containers:
+        - name: orderflow
+          image: registry.digitalocean.com/orderflow-perf-reg/orderflow:perf
+          imagePullPolicy: Always
+          ports: [{ containerPort: 8080 }]
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70" }
+            - { name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
+            - { name: SCHEMA_REGISTRY_URL, value: "http://schema-registry:8081" }
+            - { name: ORDERFLOW_LISTENERS_KAFKA, value: "false" }
+            - { name: ORDERFLOW_LISTENERS_RABBIT, value: "false" }
+            - { name: ORDERFLOW_LISTENERS_REDIS, value: "false" }
+            - { name: ORDERFLOW_LISTENERS_CDC, value: "false" }
+            - { name: SPRING_KAFKA_PRODUCER_ACKS, value: "all" }
+            - { name: SPRING_KAFKA_PRODUCER_COMPRESSION_TYPE, value: "lz4" }
+            - { name: SPRING_KAFKA_PRODUCER_BATCH_SIZE, value: "65536" }
+            - { name: SPRING_KAFKA_PRODUCER_PROPERTIES_LINGER_MS, value: "10" }
+            - { name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres:5432/orderflow" }
+            - { name: SPRING_DATASOURCE_USERNAME, value: "orderflow" }
+            - { name: SPRING_DATASOURCE_PASSWORD, value: "orderflow" }
+            - { name: SPRING_DATA_REDIS_HOST, value: "redis" }
+            - { name: SPRING_RABBITMQ_HOST, value: "rabbitmq" }
+            - { name: SPRING_RABBITMQ_USERNAME, value: "guest" }
+            - { name: SPRING_RABBITMQ_PASSWORD, value: "guest" }
+          resources:
+            requests: { cpu: "750m", memory: 1Gi }
+            limits: { cpu: "1500m", memory: 1536Mi }
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            failureThreshold: 18
+---
+apiVersion: v1
+kind: Service
+metadata: { name: orderflow, namespace: default }
+spec:
+  selector: { app: orderflow }
+  ports: [{ port: 8080, targetPort: 8080 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: orderflow-consumer, namespace: default }
+spec:
+  replicas: 6
+  selector: { matchLabels: { app: orderflow-consumer } }
+  template:
+    metadata: { labels: { app: orderflow-consumer } }
+    spec:
+      nodeSelector: { workload: app }
+      tolerations: [{ key: workload, operator: Equal, value: app, effect: NoSchedule }]
+      containers:
+        - name: orderflow-consumer
+          image: registry.digitalocean.com/orderflow-perf-reg/orderflow:perf
+          imagePullPolicy: Always
+          env:
+            - { name: JAVA_TOOL_OPTIONS, value: "-XX:MaxRAMPercentage=70" }
+            - { name: SPRING_KAFKA_BOOTSTRAP_SERVERS, value: "kafka:9092" }
+            - { name: SCHEMA_REGISTRY_URL, value: "http://schema-registry:8081" }
+            - { name: ORDERFLOW_LISTENERS_RABBIT, value: "false" }
+            - { name: ORDERFLOW_LISTENERS_REDIS, value: "false" }
+            - { name: ORDERFLOW_LISTENERS_CDC, value: "false" }
+            - { name: SPRING_KAFKA_LISTENER_CONCURRENCY, value: "8" }
+            - { name: SPRING_KAFKA_CONSUMER_MAX_POLL_RECORDS, value: "500" }
+            - { name: SPRING_KAFKA_CONSUMER_FETCH_MIN_SIZE, value: "1024" }
+            - { name: SPRING_DATASOURCE_URL, value: "jdbc:postgresql://postgres:5432/orderflow" }
+            - { name: SPRING_DATASOURCE_USERNAME, value: "orderflow" }
+            - { name: SPRING_DATASOURCE_PASSWORD, value: "orderflow" }
+            - { name: SPRING_DATA_REDIS_HOST, value: "redis" }
+            - { name: SPRING_RABBITMQ_HOST, value: "rabbitmq" }
+            - { name: SPRING_RABBITMQ_USERNAME, value: "guest" }
+            - { name: SPRING_RABBITMQ_PASSWORD, value: "guest" }
+          resources:
+            requests: { cpu: "300m", memory: 768Mi }
+            limits: { cpu: "1200m", memory: 1280Mi }

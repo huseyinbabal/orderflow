@@ -16,7 +16,7 @@ spec:
       file: load-test.js
   runner:
     env:
-      # BROKER_PLACEHOLDER is substituted by `make k6-run BROKER=kafka` (default: all)
+      # BROKER_PLACEHOLDER is substituted by `make k6-run BROKER=<rabbit|kafka|redis|all>` (default: all)
       - name: BROKER
         value: "BROKER_PLACEHOLDER"
       - name: K6_PROMETHEUS_RW_SERVER_URL

@@ -1,0 +1,6 @@
+order-10k-1-frfqw: reqs=285091 rate=966/s p95=1364ms p99? med=419ms max=11542ms dropped=153887 fail=0.0000 vus=355
+order-10k-2-g5wfj: reqs=280804 rate=949/s p95=1390ms p99? med=426ms max=12046ms dropped=159530 fail=0.0000 vus=379
+order-10k-3-xkxwn: reqs=286396 rate=966/s p95=1350ms p99? med=418ms max=14785ms dropped=154619 fail=0.0000 vus=305
+order-10k-4-qrm5h: reqs=289636 rate=975/s p95=1344ms p99? med=417ms max=14824ms dropped=152616 fail=0.0000 vus=315
+order-10k-5-kjrg9: reqs=289677 rate=972/s p95=1371ms p99? med=416ms max=14606ms dropped=154212 fail=0.0000 vus=378
+order-10k-6-zbd84: reqs=291697 rate=975/s p95=1341ms p99? med=417ms max=11110ms dropped=153889 fail=0.0000 vus=334
